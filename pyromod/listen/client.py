@@ -1,6 +1,8 @@
+
 import asyncio
 from inspect import iscoroutinefunction
 from typing import Optional, Callable, Dict, List, Union
+from collections import defaultdict
 
 import pyrogram
 from pyrogram.filters import Filter
@@ -23,7 +25,7 @@ class Client(pyrogram.client.Client):
 
     @should_patch()
     def __init__(self, *args, **kwargs):
-        self.listeners = {listener_type: [] for listener_type in ListenerTypes}
+        self.listeners = defaultdict(list)
         self.old__init__(*args, **kwargs)
 
     @should_patch()
@@ -33,8 +35,8 @@ class Client(pyrogram.client.Client):
         listener_type: ListenerTypes = ListenerTypes.MESSAGE,
         timeout: Optional[int] = None,
         unallowed_click_alert: bool = True,
-        chat_id: Union[Union[int, str], List[Union[int, str]]] = None,
-        user_id: Union[Union[int, str], List[Union[int, str]]] = None,
+        chat_id: Union[int, str, List[Union[int, str]]] = None,
+        user_id: Union[int, str, List[Union[int, str]]] = None,
         message_id: Union[int, List[int]] = None,
         inline_message_id: Union[str, List[str]] = None,
     ):
@@ -57,7 +59,6 @@ class Client(pyrogram.client.Client):
         )
 
         future.add_done_callback(lambda _future: self.remove_listener(listener))
-
         self.listeners[listener_type].append(listener)
 
         try:
@@ -76,20 +77,20 @@ class Client(pyrogram.client.Client):
     @should_patch()
     async def ask(
         self,
-        chat_id: Union[Union[int, str], List[Union[int, str]]],
+        chat_id: Union[int, str, List[Union[int, str]]],
         text: str,
         filters: Optional[Filter] = None,
         listener_type: ListenerTypes = ListenerTypes.MESSAGE,
         timeout: Optional[int] = None,
         unallowed_click_alert: bool = True,
-        user_id: Union[Union[int, str], List[Union[int, str]]] = None,
+        user_id: Union[int, str, List[Union[int, str]]] = None,
         message_id: Union[int, List[int]] = None,
         inline_message_id: Union[str, List[str]] = None,
         *args,
         **kwargs,
     ):
         sent_message = None
-        if text.strip() != "":
+        if text.strip():
             chat_to_ask = chat_id[0] if isinstance(chat_id, list) else chat_id
             sent_message = await self.send_message(chat_to_ask, text, *args, **kwargs)
 
@@ -103,6 +104,7 @@ class Client(pyrogram.client.Client):
             message_id=message_id,
             inline_message_id=inline_message_id,
         )
+
         if response:
             response.sent_message = sent_message
 
@@ -112,7 +114,7 @@ class Client(pyrogram.client.Client):
     def remove_listener(self, listener: Listener):
         try:
             self.listeners[listener.listener_type].remove(listener)
-        except ValueError:
+        except (ValueError, KeyError):
             pass
 
     @should_patch()
@@ -120,11 +122,10 @@ class Client(pyrogram.client.Client):
         self, data: Identifier, listener_type: ListenerTypes
     ) -> Optional[Listener]:
         matching = []
-        for listener in self.listeners[listener_type]:
+        for listener in self.listeners.get(listener_type, []):
             if listener.identifier.matches(data):
                 matching.append(listener)
 
-        # in case of multiple matching listeners, the most specific should be returned
         def count_populated_attributes(listener_item: Listener):
             return listener_item.identifier.count_populated()
 
@@ -134,11 +135,9 @@ class Client(pyrogram.client.Client):
         self, pattern: Identifier, listener_type: ListenerTypes
     ) -> Optional[Listener]:
         matching = []
-        for listener in self.listeners[listener_type]:
+        for listener in self.listeners.get(listener_type, []):
             if pattern.matches(listener.identifier):
                 matching.append(listener)
-
-        # in case of multiple matching listeners, the most specific should be returned
 
         def count_populated_attributes(listener_item: Listener):
             return listener_item.identifier.count_populated()
@@ -152,7 +151,7 @@ class Client(pyrogram.client.Client):
         listener_type: ListenerTypes,
     ) -> List[Listener]:
         listeners = []
-        for listener in self.listeners[listener_type]:
+        for listener in self.listeners.get(listener_type, []):
             if listener.identifier.matches(data):
                 listeners.append(listener)
         return listeners
@@ -164,7 +163,7 @@ class Client(pyrogram.client.Client):
         listener_type: ListenerTypes,
     ) -> List[Listener]:
         listeners = []
-        for listener in self.listeners[listener_type]:
+        for listener in self.listeners.get(listener_type, []):
             if pattern.matches(listener.identifier):
                 listeners.append(listener)
         return listeners
@@ -173,8 +172,8 @@ class Client(pyrogram.client.Client):
     async def stop_listening(
         self,
         listener_type: ListenerTypes = ListenerTypes.MESSAGE,
-        chat_id: Union[Union[int, str], List[Union[int, str]]] = None,
-        user_id: Union[Union[int, str], List[Union[int, str]]] = None,
+        chat_id: Union[int, str, List[Union[int, str]]] = None,
+        user_id: Union[int, str, List[Union[int, str]]] = None,
         message_id: Union[int, List[int]] = None,
         inline_message_id: Union[str, List[str]] = None,
     ):
@@ -184,7 +183,10 @@ class Client(pyrogram.client.Client):
             message_id=message_id,
             inline_message_id=inline_message_id,
         )
-        listeners = self.get_many_listeners_matching_with_identifier_pattern(pattern, listener_type)
+
+        listeners = self.get_many_listeners_matching_with_identifier_pattern(
+            pattern, listener_type
+        )
 
         for listener in listeners:
             await self.stop_listener(listener)
@@ -213,8 +215,8 @@ class Client(pyrogram.client.Client):
         filters: Optional[Filter] = None,
         listener_type: ListenerTypes = ListenerTypes.MESSAGE,
         unallowed_click_alert: bool = True,
-        chat_id: Union[Union[int, str], List[Union[int, str]]] = None,
-        user_id: Union[Union[int, str], List[Union[int, str]]] = None,
+        chat_id: Union[int, str, List[Union[int, str]]] = None,
+        user_id: Union[int, str, List[Union[int, str]]] = None,
         message_id: Union[int, List[int]] = None,
         inline_message_id: Union[str, List[str]] = None,
     ):
